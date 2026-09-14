@@ -1,0 +1,56 @@
+{
+  "name": "02-sync-woocommerce-orders",
+  "nodes": [
+    {
+      "parameters": {
+        "rule": {"interval": [{"cronExpression": "*/30 * * * *"}]}
+      },
+      "name": "Cron 30min",
+      "type": "n8n-nodes-base.scheduleTrigger",
+      "position": [240, 300]
+    },
+    {
+      "parameters": {
+        "url": "http://host.docker.internal:8040/api/sync/woocommerce/all",
+        "options": {}
+      },
+      "name": "POST /api/sync/woocommerce/all",
+      "type": "n8n-nodes-base.httpRequest",
+      "position": [480, 300]
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": {"caseSensitive": true, "leftValue": "", "typeValidation": "strict"},
+          "conditions": [
+            {
+              "leftValue": "={{$json.status}}",
+              "rightValue": "error",
+              "operator": {"type": "string", "operation": "equals"}
+            }
+          ]
+        }
+      },
+      "name": "If error",
+      "type": "n8n-nodes-base.if",
+      "position": [700, 300]
+    },
+    {
+      "parameters": {
+        "channel": "#ops-brain",
+        "text": "={{'Sync WooCommerce falló: ' + $json.error}}",
+        "otherOptions": {}
+      },
+      "name": "Slack alert",
+      "type": "n8n-nodes-base.slack",
+      "position": [920, 400]
+    }
+  ],
+  "connections": {
+    "Cron 30min": {"main": [[{"node": "POST /api/sync/woocommerce/all", "type": "main", "index": 0}]]},
+    "POST /api/sync/woocommerce/all": {"main": [[{"node": "If error", "type": "main", "index": 0}]]},
+    "If error": {
+      "main": [[], [{"node": "Slack alert", "type": "main", "index": 0}]]
+    }
+  }
+}

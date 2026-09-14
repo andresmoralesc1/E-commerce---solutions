@@ -1,0 +1,58 @@
+{
+  "app": {
+    "title": "Ecommerce Brain",
+    "tagline": "Your store's CFO + media buyer"
+  },
+  "nav": {
+    "dashboard": "Dashboard",
+    "products": "Products",
+    "pending": "Pending actions",
+    "tenants": "Stores",
+    "logout": "Log out"
+  },
+  "auth": {
+    "login": "Sign in",
+    "email": "Email",
+    "password": "Password",
+    "submit": "Enter",
+    "no_account": "No account",
+    "create_admin": "Create first admin"
+  },
+  "kpi": {
+    "revenue": "Revenue 30d",
+    "net_margin": "Net margin",
+    "ad_spend": "Ad spend",
+    "roas": "Real ROAS",
+    "burning_skus": "SKUs at loss",
+    "money_burned": "Money burned 3d"
+  },
+  "products": {
+    "sku": "SKU",
+    "title": "Product",
+    "stock": "Stock",
+    "revenue": "Revenue",
+    "margin": "Margin %",
+    "state": "State",
+    "actions": "Actions",
+    "states": {
+      "GANADOR": "Winner",
+      "A_OPTIMIZAR": "Optimize",
+      "EN_RIESGO": "At risk",
+      "A_PERDIDA": "At loss"
+    }
+  },
+  "actions": {
+    "approve": "Approve",
+    "reject": "Reject",
+    "ask_agent": "Ask agent",
+    "empty": "No pending actions"
+  },
+  "common": {
+    "loading": "Loading…",
+    "error": "Error",
+    "retry": "Retry",
+    "yes": "Yes",
+    "no": "No",
+    "language": "Language"
+  }
+}

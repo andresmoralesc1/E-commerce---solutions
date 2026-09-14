@@ -1,0 +1,58 @@
+{
+  "app": {
+    "title": "Ecommerce Brain",
+    "tagline": "El CFO y media buyer de tu tienda"
+  },
+  "nav": {
+    "dashboard": "Dashboard",
+    "products": "Productos",
+    "pending": "Acciones pendientes",
+    "tenants": "Tiendas",
+    "logout": "Salir"
+  },
+  "auth": {
+    "login": "Iniciar sesión",
+    "email": "Correo",
+    "password": "Contraseña",
+    "submit": "Entrar",
+    "no_account": "Sin cuenta",
+    "create_admin": "Crear primer admin"
+  },
+  "kpi": {
+    "revenue": "Ingresos 30d",
+    "net_margin": "Margen neto",
+    "ad_spend": "Gasto en ads",
+    "roas": "ROAS real",
+    "burning_skus": "SKUs a pérdida",
+    "money_burned": "Dinero quemado 3d"
+  },
+  "products": {
+    "sku": "SKU",
+    "title": "Producto",
+    "stock": "Stock",
+    "revenue": "Ingresos",
+    "margin": "Margen %",
+    "state": "Estado",
+    "actions": "Acciones",
+    "states": {
+      "GANADOR": "Ganador",
+      "A_OPTIMIZAR": "A optimizar",
+      "EN_RIESGO": "En riesgo",
+      "A_PERDIDA": "A pérdida"
+    }
+  },
+  "actions": {
+    "approve": "Aprobar",
+    "reject": "Rechazar",
+    "ask_agent": "Pedir decisión al agente",
+    "empty": "Sin acciones pendientes"
+  },
+  "common": {
+    "loading": "Cargando…",
+    "error": "Error",
+    "retry": "Reintentar",
+    "yes": "Sí",
+    "no": "No",
+    "language": "Idioma"
+  }
+}

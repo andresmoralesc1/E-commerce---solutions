@@ -1,0 +1,30 @@
+{
+  "name": "03-sync-meta-ads-daily",
+  "nodes": [
+    {
+      "parameters": {
+        "rule": {"interval": [{"cronExpression": "0 6 * * *"}]}
+      },
+      "name": "Cron 6am",
+      "type": "n8n-nodes-base.scheduleTrigger",
+      "position": [240, 300]
+    },
+    {
+      "parameters": {
+        "url": "http://host.docker.internal:8040/api/ads/meta/sync",
+        "bodyParameters": {
+          "parameters": [
+            {"name": "days_back", "value": "1"}
+          ]
+        },
+        "options": {}
+      },
+      "name": "POST /api/ads/meta/sync",
+      "type": "n8n-nodes-base.httpRequest",
+      "position": [480, 300]
+    }
+  ],
+  "connections": {
+    "Cron 6am": {"main": [[{"node": "POST /api/ads/meta/sync", "type": "main", "index": 0}]]}
+  }
+}

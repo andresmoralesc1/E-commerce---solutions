@@ -1,0 +1,26 @@
+{
+  "name": "05-refresh-profitability",
+  "nodes": [
+    {
+      "parameters": {
+        "rule": {"interval": [{"cronExpression": "*/30 * * * *"}]}
+      },
+      "name": "Cron 30min",
+      "type": "n8n-nodes-base.scheduleTrigger",
+      "position": [240, 300]
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "http://host.docker.internal:8040/api/dashboard/refresh",
+        "options": {}
+      },
+      "name": "Refresh materialized view",
+      "type": "n8n-nodes-base.httpRequest",
+      "position": [480, 300]
+    }
+  ],
+  "connections": {
+    "Cron 30min": {"main": [[{"node": "Refresh materialized view", "type": "main", "index": 0}]]}
+  }
+}
