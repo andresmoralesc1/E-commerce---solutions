@@ -44,7 +44,23 @@ async def fetch_orders(
 
 
 async def _upsert_order(tenant_id: UUID, order: dict) -> int:
+    from datetime import datetime
     external_id = str(order["id"])
+
+    # Normalizar placed_at
+    placed_at_raw = order.get("date_created")
+    if isinstance(placed_at_raw, str):
+        try:
+            placed_at = datetime.fromisoformat(
+                placed_at_raw.replace("Z", "+00:00")
+            )
+        except Exception:
+            placed_at = datetime.utcnow()
+    elif isinstance(placed_at_raw, datetime):
+        placed_at = placed_at_raw
+    else:
+        placed_at = datetime.utcnow()
+
     async with db.acquire() as conn:
         async with conn.transaction():
             await conn.execute(
@@ -67,23 +83,25 @@ async def _upsert_order(tenant_id: UUID, order: dict) -> int:
                 float(order.get("shipping_total", "0") or 0),
                 float(order.get("total_tax", "0") or 0),
                 float(order.get("total", "0") or 0),
-                order.get("date_created"),
+                placed_at,
             )
     for li in order.get("line_items", []):
-        sku = li.get("sku") or f"WOO-{li.get('product_id')}"
-        qty = li.get("quantity", 1)
+        sku = str(li.get("sku") or f"WOO-{li.get('product_id')}")
+        qty = int(li.get("quantity", 1))
         unit = float(li.get("price", 0))
+        total = unit * qty
         await db.execute(
             """
             INSERT INTO order_items
               (order_id, sku, quantity, unit_price, total_price)
-            SELECT id, $1, $2, $3, $4 FROM orders
-            WHERE tenant_id = $5 AND external_id = $6
+            SELECT o.id, $1::text, $2::int, $3::numeric, $4::numeric
+            FROM orders o
+            WHERE o.tenant_id = $5::uuid AND o.external_id = $6::text
               AND NOT EXISTS (
                 SELECT 1 FROM order_items oi
-                WHERE oi.order_id = orders.id AND oi.sku = $1
+                WHERE oi.order_id = o.id AND oi.sku = $1::text
               )
             """,
-            sku, qty, unit, unit * qty, tenant_id, external_id,
+            sku, qty, unit, total, tenant_id, external_id,
         )
     return 1

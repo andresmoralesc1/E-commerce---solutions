@@ -3,6 +3,7 @@ import {getMessages, setRequestLocale} from "next-intl/server";
 import {notFound} from "next/navigation";
 import {routing} from "@/i18n";
 import {AuthProvider} from "@/lib/auth";
+import {TenantProvider} from "@/lib/tenant";
 import "../globals.css";
 
 export function generateStaticParams() {
@@ -27,7 +28,9 @@ export default async function LocaleLayout({
     <html lang={locale}>
       <body className="bg-slate-950 text-slate-100 antialiased">
         <NextIntlClientProvider messages={messages}>
-          <AuthProvider>{children}</AuthProvider>
+          <AuthProvider>
+            <TenantProvider>{children}</TenantProvider>
+          </AuthProvider>
         </NextIntlClientProvider>
       </body>
     </html>

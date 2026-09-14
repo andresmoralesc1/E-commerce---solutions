@@ -202,6 +202,13 @@ async def confirm_and_execute(action_id: str, approved: bool) -> dict:
         return {"ok": False, "error": "action_not_found"}
     pa = dict(pa)
 
+    # payload viene como string desde jsonb — deserializar
+    if isinstance(pa.get("payload"), str):
+        try:
+            pa["payload"] = json.loads(pa["payload"])
+        except Exception:
+            pa["payload"] = {}
+
     if pa["status"] != "pending":
         return {"ok": False, "error": f"already_{pa['status']}"}
 

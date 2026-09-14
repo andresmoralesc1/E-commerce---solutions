@@ -20,6 +20,19 @@ from app.services.agent_decision import (
 router = APIRouter(prefix="/api/agent", tags=["agent"])
 
 
+def _parse_pending(row: dict) -> dict:
+    """Deserializa campos jsonb que asyncpg devuelve como str."""
+    import json as _json
+    for field in ("execution_result",):
+        v = row.get(field)
+        if isinstance(v, str) and v:
+            try:
+                row[field] = _json.loads(v)
+            except Exception:
+                row[field] = None
+    return row
+
+
 @router.post("/decide", response_model=DecideOut)
 async def decide(
     body: DecideIn,
@@ -99,4 +112,4 @@ async def list_pending(
             """,
             allowed, status_filter, limit,
         )
-    return [PendingActionOut(**dict(r)) for r in rows]
+    return [PendingActionOut(**_parse_pending(dict(r))) for r in rows]

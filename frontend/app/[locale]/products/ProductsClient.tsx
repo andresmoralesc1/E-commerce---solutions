@@ -3,6 +3,7 @@ import {useState} from "react";
 import useSWR from "swr";
 import {api} from "@/lib/api";
 import {useAuth} from "@/lib/auth";
+import {useTenant} from "@/lib/tenant";
 import {ProfitabilityTable} from "@/components/ProfitabilityTable";
 import type {SKUState, ProfitabilityRow} from "@/lib/types";
 
@@ -12,16 +13,20 @@ const FILTERS: (SKUState | "ALL")[] = [
 
 export function ProductsClient() {
   const {token} = useAuth();
+  const {activeTenantId} = useTenant();
   const [filter, setFilter] = useState<SKUState | "ALL">("ALL");
 
-  const url =
+  const base =
     filter === "ALL"
       ? "/api/dashboard/profitability?limit=200"
       : `/api/dashboard/profitability?state=${filter}&limit=200`;
 
+  const url = activeTenantId ? `${base}&tenant_id=${activeTenantId}` : base;
+
   const {data, error, isLoading} = useSWR<ProfitabilityRow[]>(
     token ? [url, token] : null,
     ([u, t]) => api<ProfitabilityRow[]>(u, {token: t as string}),
+    {refreshInterval: 30000},
   );
 
   return (
@@ -43,7 +48,14 @@ export function ProductsClient() {
       </div>
       {isLoading && <p>Cargando…</p>}
       {error && <p className="text-rose-400">{String(error)}</p>}
-      {data && <ProfitabilityTable rows={data} />}
+      {data && (
+          <>
+            <p className="text-xs text-slate-400">
+              {data.length} resultados
+            </p>
+            <ProfitabilityTable rows={data} />
+          </>
+        )}
     </div>
   );
 }

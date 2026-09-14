@@ -2,13 +2,34 @@
 import Link from "next/link";
 import {usePathname, useRouter} from "next/navigation";
 import {useTranslations} from "next-intl";
+import {useEffect, useState} from "react";
 import {useAuth} from "@/lib/auth";
+import {api} from "@/lib/api";
+
+interface Tenant {
+  id: string;
+  name: string;
+  source: string;
+}
 
 export function NavBar({locale}: {locale: string}) {
   const t = useTranslations("nav");
   const path = usePathname();
   const router = useRouter();
-  const {setToken} = useAuth();
+  const {token, setToken} = useAuth();
+  const [tenants, setTenants] = useState<Tenant[]>([]);
+  const [activeTenant, setActiveTenant] = useState<string | null>(null);
+
+  useEffect(() => {
+    if (!token) return;
+    api<Tenant[]>("/api/tenants", {token}).then(setTenants).catch(() => {});
+    const saved = localStorage.getItem("brain_active_tenant");
+    if (saved) setActiveTenant(saved);
+  }, [token]);
+
+  useEffect(() => {
+    if (activeTenant) localStorage.setItem("brain_active_tenant", activeTenant);
+  }, [activeTenant]);
 
   const items = [
     {href: `/${locale}`, label: t("dashboard")},
@@ -38,6 +59,20 @@ export function NavBar({locale}: {locale: string}) {
           </Link>
         ))}
       </div>
+      {tenants.length > 0 && (
+        <select
+          value={activeTenant ?? ""}
+          onChange={(e) => setActiveTenant(e.target.value || null)}
+          className="ml-2 px-2 py-1 bg-slate-800 border border-slate-700 rounded text-xs"
+        >
+          <option value="">— tenant —</option>
+          {tenants.map((t) => (
+            <option key={t.id} value={t.id}>
+              {t.name} ({t.source})
+            </option>
+          ))}
+        </select>
+      )}
       <div className="ml-auto flex items-center gap-3 text-sm">
         <Link href={altHref} className="text-slate-400 hover:text-white uppercase">
           {altLocale}
@@ -45,6 +80,7 @@ export function NavBar({locale}: {locale: string}) {
         <button
           onClick={() => {
             setToken(null);
+            localStorage.removeItem("brain_active_tenant");
             router.push(`/${locale}/login`);
           }}
           className="text-slate-400 hover:text-rose-400"

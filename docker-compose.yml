@@ -43,6 +43,10 @@ services:
       EVOLUTION_API_KEY: ${EVOLUTION_API_KEY:-}
       GATEWAY_FEE_PCT: ${GATEWAY_FEE_PCT:-0.035}
       RETURN_COST_EST_PCT: ${RETURN_COST_EST_PCT:-0.05}
+    volumes:
+      - ./backend/app:/app/app
+      - ./backend/scripts:/app/scripts
+      - ./backend/migrations:/app/migrations
     ports:
       - "127.0.0.1:8040:8000"
     healthcheck:
