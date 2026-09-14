@@ -76,19 +76,46 @@ services:
       retries: 5
 
   evolution:
-    image: atendai/evolution-api:latest
+    image: evoapicloud/evolution-api:latest
     restart: unless-stopped
+    depends_on:
+      evolution-db:
+        condition: service_healthy
     environment:
       AUTHENTICATION_API_KEY: ${EVOLUTION_API_KEY:-evo_change_me}
-      DATABASE_ENABLED: "false"
+      AUTHENTICATION_API_KEY_HEADER_NAME: apikey
+      DATABASE_ENABLED: "true"
+      DATABASE_PROVIDER: "postgresql"
+      DATABASE_CONNECTION_URI: postgresql://evolution:${EVOLUTION_DB_PASSWORD:-evo_pass}@evolution-db:5432/evolution
       REDIS_ENABLED: "false"
-      WEBHOOK_GLOBAL_URL: ${EVOLUTION_WEBHOOK_URL:-}
-      WEBHOOK_GLOBAL_ENABLED: "false"
+      WEBHOOK_GLOBAL_URL: ${EVOLUTION_WEBHOOK_URL:-http://host.docker.internal:8040/api/webhooks/evolution}
+      WEBHOOK_GLOBAL_ENABLED: "true"
+      WEBHOOK_EVENTS_MESSAGES_UPSERT: "true"
+      WEBHOOK_EVENTS_CONNECTION_UPDATE: "true"
+      CONFIG_SESSION_PHONE_VERSION: "1.0.0"
+      TELEMETRY_ENABLED: "false"
+      LOG_LEVEL: "INFO"
     ports:
       - "127.0.0.1:8088:8080"
     volumes:
       - evolution_data:/evolution/store
     profiles: ["phase4"]
+
+  evolution-db:
+    image: postgres:16-alpine
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: evolution
+      POSTGRES_PASSWORD: ${EVOLUTION_DB_PASSWORD:-evo_pass}
+      POSTGRES_DB: evolution
+    volumes:
+      - evolution_db_data:/var/lib/postgresql/data
+    profiles: ["phase4"]
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U evolution"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
 
   cloudflared:
     image: cloudflare/cloudflared:latest
@@ -102,3 +129,4 @@ services:
 volumes:
   postgres_data:
   evolution_data:
+  evolution_db_data:

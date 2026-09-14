@@ -75,7 +75,35 @@ curl -s -X POST -H "Authorization: Bearer $TOKEN" \
   http://localhost:8040/api/reports/morning
 ```
 
-### 7. (Opcional) Compartir con URL pública temporal
+### 7. (Opcional) WhatsApp con Evolution API
+```bash
+# 1. Levantar Evolution + DB
+docker compose --profile phase4 up -d evolution evolution-db
+
+# 2. Configurar API key (debe coincidir con .env)
+EVOLUTION_KEY=$(grep ^EVOLUTION_API_KEY .env | cut -d= -f2)
+
+# 3. Crear instancia + escanear QR
+curl -X POST http://localhost:8088/instance/create \
+  -H "apikey: $EVOLUTION_KEY" -H "Content-Type: application/json" \
+  -d '{"instanceName":"brain","qrcode":true,"integration":"WHATSAPP-BAILEYS"}'
+
+# 4. Decodificar QR como PNG
+curl -X POST http://localhost:8088/instance/create \
+  -H "apikey: $EVOLUTION_KEY" -H "Content-Type: application/json" \
+  -d '{"instanceName":"brain","qrcode":true,"integration":"WHATSAPP-BAILEYS"}' \
+  | python3 -c "import json,sys,base64; d=json.load(sys.stdin); \
+    open('qr.png','wb').write(base64.b64decode(d['qrcode']['base64'].split(',')[1]))"
+
+# 5. Configurar manager_phone del tenant
+docker exec ecommerce-brain-postgres-1 psql -U brain -d brain -c "
+UPDATE tenants SET settings = settings ||
+  '{\"manager_phone\":\"+573001234567\",\"evolution_instance\":\"brain\"}'::jsonb;"
+```
+
+Ver `docs/EVOLUTION.md` para troubleshooting completo.
+
+### 8. (Opcional) Compartir con URL pública temporal
 ```bash
 docker compose --profile share up -d cloudflared
 docker compose logs cloudflared | grep -oE "https://[a-z0-9-]+\.trycloudflare\.com"
@@ -116,40 +144,63 @@ ecommerce-brain/
 
 | Plataforma | Estado | Doc |
 |---|---|---|
-| Shopify Admin API (GraphQL) | ✅ Funciona (sync + webhook) | `docs/SHOPIFY.md` |
+| Shopify Admin API (GraphQL) | ✅ Funciona (sync + webhook + price update) | `docs/SHOPIFY.md` |
 | WooCommerce REST v3 | ✅ Funciona (sync + webhook) | `docs/WOOCOMMERCE.md` |
-| Meta Marketing API | 🟡 Stub (Fase 3) | `docs/META-ADS.md` |
-| Google Ads API | 🟡 Stub (Fase 3) | `docs/GOOGLE-ADS.md` |
-| Evolution API (WhatsApp) | 🟡 Compose ready (Fase 4) | `docs/EVOLUTION.md` |
+| Meta Marketing API | ✅ Funciona (OAuth + pause + scale + insights) | `docs/META-ADS.md` |
+| Google Ads API | ✅ Funciona (OAuth + pause + scale + GAQL) | `docs/GOOGLE-ADS.md` |
+| Evolution API (WhatsApp) | ✅ Funciona (instancia + QR + send + webhook) | `docs/EVOLUTION.md` |
 | n8n existente | ✅ Vía REST API | Workflows en `/n8n-workflows/` |
 
-## 🧪 Endpoints Fase 2 (todos probados con datos reales)
+## 🧪 Endpoints Fase 4 (todos probados con datos reales)
 
 ```
-GET  /api/dashboard/kpis?tenant_id=...     Revenue/margen/ads/skuus_a pérdida
-GET  /api/dashboard/profitability?...      Lista SKUs con margen
-POST /api/dashboard/refresh               REFRESH MATERIALIZED VIEW
+# Dashboard
+GET  /api/dashboard/kpis?tenant_id=...        Revenue/margen/ads/skuus_a pérdida
+GET  /api/dashboard/profitability?...         Lista SKUs con margen
+POST /api/dashboard/refresh                  REFRESH MATERIALIZED VIEW
 
-POST /api/sync/shopify/{tenant_id}/now     Pull manual Shopify
-POST /api/sync/woocommerce/{tenant_id}/now Pull manual Woo
-POST /api/sync/shopify/all                 Cron (n8n)
-POST /api/sync/woocommerce/all             Cron (n8n)
+# Sync
+POST /api/sync/shopify/{tenant_id}/now        Pull manual Shopify
+POST /api/sync/woocommerce/{tenant_id}/now    Pull manual Woo
+POST /api/sync/{shopify,woocommerce}/all      Cron (n8n)
 
-POST /api/ads/meta/sync                    Pull Meta (Fase 3)
-POST /api/ads/google/sync                  Pull Google (Fase 3)
-POST /api/ads/seed/synthetic/{tenant_id}   Genera ad_spend fake
+# Ads
+POST /api/ads/meta/sync                       Pull Meta insights
+POST /api/ads/google/sync                     Pull Google Ads
+POST /api/ads/seed/synthetic/{tenant_id}      Genera ad_spend fake
 
-POST /api/webhooks/shopify/orders          Recibe webhook Shopify
-POST /api/webhooks/woocommerce/orders      Recibe webhook Woo
-POST /api/webhooks/evolution               Recibe respuesta SI/NO WhatsApp
+# OAuth
+GET  /api/auth/meta/start?tenant_id=X          → redirect Facebook
+GET  /api/auth/meta/callback?code=...          Guarda token + ad accounts
+GET  /api/auth/google/start?tenant_id=X        → redirect Google
+GET  /api/auth/google/callback?code=...        Guarda refresh_token + customers
 
-POST /api/agent/decide                     Crea pending_action + whatsapp_message
-POST /api/agent/confirm/{id}               Aprueba y ejecuta (o rechaza)
-GET  /api/agent/pending                    Cola de acciones
+# Webhooks
+POST /api/webhooks/shopify/orders             Recibe webhook Shopify
+POST /api/webhooks/woocommerce/orders         Recibe webhook Woo
+POST /api/webhooks/evolution                  Recibe SI/NO WhatsApp (Evolution v2)
 
-POST /api/reports/morning                  Morning report: enumera SKUs y enqueue
-PUT  /api/products/{sku}/cost              Asigna COGS manual
-POST /api/products/bulk-cost               Bulk COGS (CSV)
+# Agent
+POST /api/agent/decide                        Crea pending_action + whatsapp_message
+POST /api/agent/confirm/{id}                  Aprueba y ejecuta (o rechaza)
+GET  /api/agent/pending                       Cola de acciones
+
+# Reports
+POST /api/reports/morning                     Ejecuta morning + envía WhatsApp
+POST /api/reports/morning/dry-run             Simula sin enviar
+
+# WhatsApp
+GET  /api/whatsapp/evolution/status           Estado Evolution API
+POST /api/whatsapp/send?tenant_id=X            Envía mensaje manual
+POST /api/whatsapp/send-pending/{action_id}   Envía whatsapp_message de pending
+
+# Audit
+GET  /api/audit?tenant_id=X                   Log completo con actor (user/whatsapp/system)
+
+# Products
+GET  /api/products?tenant_id=X                Lista productos
+PUT  /api/products/{sku}/cost                 Asigna COGS manual
+POST /api/products/bulk-cost                  Bulk COGS (CSV)
 ```
 
 ---
@@ -157,10 +208,10 @@ POST /api/products/bulk-cost               Bulk COGS (CSV)
 ## 🚦 Fases
 
 - ✅ **Fase 1**: cimientos. Auth JWT, schema, vista, dashboard vacío.
-- ✅ **Fase 2** (actual): sync endpoints + webhooks + seed data + morning report + agent decide loop.
-- **Fase 3**: Meta/Google SDK + agente ejecutando acciones reales (con confirmación).
-- **Fase 4**: Evolution API + WhatsApp + reporte diario 8am.
-- **DNS Prod**: ejecutar `deploy/namecheap-dns-sync.py` cuando esté estable.
+- ✅ **Fase 2**: sync endpoints + webhooks + seed data + morning report + agent decide loop.
+- ✅ **Fase 3**: Meta/Google SDK real + OAuth flows + LLM agnóstico + audit log.
+- ✅ **Fase 4** (actual): Evolution API + WhatsApp send/receive + DNS + Caddy vhosts.
+- **DNS Prod**: ejecutar `deploy/namecheap-dns-sync.py` cuando esté listo para producción.
 
 ---
 

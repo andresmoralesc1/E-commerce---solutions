@@ -1,9 +1,9 @@
 """Webhook router — recibe eventos en tiempo real de Shopify/Woo/Evolution."""
+import json
 from datetime import datetime
 from uuid import UUID
 
 from fastapi import APIRouter, Header, HTTPException, Request
-import json
 
 from app.connectors import shopify, woocommerce
 
@@ -18,11 +18,8 @@ async def shopify_orders_webhook(
 ) -> dict:
     """Recibe webhook de Shopify. Busca tenant por shop_domain y procesa."""
     body = await request.json()
-    shop_domain = (x_shopify_shop_domain or body.get("shop_domain", "")).rstrip("/")
+    shop_domain = (xshopify_shop_domain or body.get("shop_domain", "")).rstrip("/")
 
-    # Buscar tenant por dominio
-    # TODO Fase 3: cache de shop_domain -> tenant_id
-    # Por ahora lookup en credentials
     from app.core import db
 
     tenant = await db.fetchrow(
@@ -37,10 +34,7 @@ async def shopify_orders_webhook(
     if not tenant:
         return {"ok": False, "error": "tenant_not_found"}
 
-    # Parsear order mínimo desde webhook (estructura real en Fase 3)
-    # El webhook trae order data en el body
     try:
-        # Forma simplificada — el body es directamente un order
         node = body
         await shopify._upsert_order(tenant["id"], node)
     except Exception as e:
@@ -54,7 +48,6 @@ async def woocommerce_orders_webhook(
     request: Request,
 ) -> dict:
     body = await request.json()
-    # WooCommerce webhooks incluyen el sitio en el body o en headers
     site_url = body.get("site_url") or request.headers.get("x-wc-webhook-source", "")
 
     from app.core import db
@@ -83,42 +76,101 @@ async def woocommerce_orders_webhook(
 async def evolution_webhook(
     request: Request,
 ) -> dict:
-    """Recibe mensajes de WhatsApp vía Evolution API. Procesa respuestas SI/NO
-    a acciones pendientes."""
+    """Recibe eventos de WhatsApp vía Evolution API v2.
+
+    Formato típico de Evolution webhook (messages.upsert):
+    {
+      "event": "messages.upsert",
+      "instance": "brain",
+      "data": {
+        "key": {"remoteJid": "573001234567@s.whatsapp.net", "fromMe":": false},
+        "pushName": "Andres",
+        "message": {"conversation": "SI"},
+        "messageType": "conversation"
+      },
+      "date_time": "2026-09-14T18:00:00.000Z"
+    }
+
+    Cuando llega un SI/NO, busca la pending_action más reciente
+    del manager (por tenant activo) y la confirma/ejecuta.
+    """
     body = await request.json()
-    # Evolution API v2: data.message.conversation o extendedTextMessage.text
-    try:
-        msg_data = body.get("data", {})
-        msg = (
-            msg_data.get("message", {}).get("conversation")
-            or msg_data.get("message", {}).get("extendedTextMessage", {}).get("text")
-            or ""
-        )
-        phone = msg_data.get("key", {}).get("remoteJid", "").replace("@s.whatsapp.net", "")
-        text = msg.strip().upper()
-    except Exception:
-        return {"ok": False, "error": "bad_payload"}
+    event = body.get("event", "")
 
-    if text not in ("SI", "NO", "S", "N"):
-        return {"ok": True, "ignored": True}
+    if event != "messages.upsert":
+        # connection.update, qrcode.updated, etc. — solo log
+        return {"ok": True, "ignored_event": event}
 
-    approved = text in ("SI", "S")
-    # Buscar pending_action más reciente para ese phone (multi-tenant)
+    data = body.get("data", {})
+    msg_data = data.get("message", {})
+    msg = (
+        msg_data.get("conversation")
+        or msg_data.get("extendedTextMessage", {}).get("text")
+        or ""
+    )
+    key = data.get("key", {})
+    phone = key.get("remoteJid", "").replace("@s.whatsapp.net", "")
+    text = (msg or "").strip().upper()
+    from_me = key.get("fromMe", False)
+
+    # Ignorar mensajes propios
+    if from_me or not text:
+        return {"ok": True, "ignored": "self_or_empty"}
+
+    # SI / NO
+    if text not in ("SI", "NO", "S", "N", "SÍ"):
+        return {"ok": True, "ignored": "not_si_no"}
+
+    approved = text in ("SI", "S", "SÍ")
+
     from app.core import db
     from app.services.agent_decision import confirm_and_execute
 
-    row = await db.fetchrow(
+    # Estrategia — buscar pending_action del phone (normalizar a E.164):
+    phone_clean = phone.lstrip("+")
+    phone_variants = [phone, phone_clean, "+" + phone_clean]
+    tenant = await db.fetchrow(
         """
-        SELECT id, tenant_id FROM pending_actions
-        WHERE status='pending'
-          AND created_at > NOW() - INTERVAL '7 days'
-        ORDER BY created_at DESC
-        LIMIT 1
-        """
+        SELECT id FROM tenants
+        WHERE active = TRUE
+          AND settings->>'manager_phone' = ANY($1::text[])
+        ORDER BY created_at DESC LIMIT 1
+        """,
+        phone_variants,
     )
+    tenant_id = tenant["id"] if tenant else None
+
+    if tenant_id:
+        # Más reciente pending_action de ese tenant
+        row = await db.fetchrow(
+            """
+            SELECT id, tenant_id FROM pending_actions
+            WHERE tenant_id = $1 AND status = 'pending'
+              AND created_at > NOW() - INTERVAL '7 days'
+            ORDER BY created_at DESC LIMIT 1
+            """,
+            tenant_id,
+        )
+    else:
+        # Fallback: cualquier pending reciente
+        row = await db.fetchrow(
+            """
+            SELECT id, tenant_id FROM pending_actions
+            WHERE status = 'pending'
+              AND created_at > NOW() - INTERVAL '7 days'
+            ORDER BY created_at DESC LIMIT 1
+            """
+        )
+
     if not row:
         return {"ok": True, "msg": "no_pending_actions"}
 
-    # TODO Fase 3: validar que el phone pertenece al manager del tenant
-    result = await confirm_and_execute(str(row["id"]), approved, actor=f"whatsapp:{phone}")
-    return {"ok": True, "action_id": str(row["id"]), "result": result}
+    result = await confirm_and_execute(
+        str(row["id"]), approved, actor=f"whatsapp:{phone}"
+    )
+    return {
+        "ok": True,
+        "action_id": str(row["id"]),
+        "tenant_id": str(row["tenant_id"]) if "tenant_id" in row else None,
+        "result": result,
+    }

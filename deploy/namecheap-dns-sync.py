@@ -55,6 +55,12 @@ DESIRED_RECORDS: list[tuple[str, str, str]] = [
 ]
 
 
+def _parse_xml(body: str) -> ET.Element:
+    """Parse XML Namecheap con namespace. Si el namespace no se usa,
+    funciona también."""
+    return ET.fromstring(body)
+
+
 def api_call(command: str, **params: Any) -> ET.Element:
     qs = urlencode({
         "ApiUser": API_USER,
@@ -67,18 +73,38 @@ def api_call(command: str, **params: Any) -> ET.Element:
     req = Request(f"{API_BASE}?{qs}")
     with urlopen(req, timeout=30) as r:
         body = r.read().decode()
-    root = ET.fromstring(body)
+    root = _parse_xml(body)
     if root.attrib.get("Status") != "OK":
-        err = root.find(".//Error")
-        raise SystemExit(f"Namecheap API error: {err.text if err is not None else body[:300]}")
+        # Error element está en {ns}Error (namespace de Namecheap)
+        err = None
+        for candidate in root.iter():
+            if candidate.tag.endswith("}Error") or candidate.tag == "Error":
+                err = candidate
+                break
+        err_number = err.get("Number") if err is not None else None
+        err_text = err.text if err is not None else body[:300]
+        if err_number == "2019166":
+            raise NamecheapDNSNotOurs(err_text or "domain not using our DNS")
+        raise SystemExit(f"Namecheap API error ({err_number}): {err_text}")
     return root
 
 
-def get_hosts(domain: str) -> list[dict[str, str]]:
+class NamecheapDNSNotOurs(Exception):
+    """El dominio no usa nameservers de Namecheap."""
+
+
+def get_hosts(domain: str) -> tuple[list[dict[str, str]], bool]:
+    """Returns (hosts, is_using_namedns). Si is_using_namedns=False,
+    no podemos editar los records vía API — el cliente debe migrar
+    primero los nameservers a Namecheap."""
     root = api_call(
         "namecheap.domains.dns.getHosts",
         SLd=domain,
     )
+    is_our_dns = root.find(
+        ".//DomainDNSGetHostsResult"
+    ).get("IsUsingOurDNS", "true") == "true"
+
     hosts: list[dict[str, str]] = []
     for h in root.findall(".//host"):
         hosts.append({
@@ -88,7 +114,7 @@ def get_hosts(domain: str) -> list[dict[str, str]]:
             "address": h.get("Address", ""),
             "ttl": h.get("TTL", ""),
         })
-    return hosts
+    return hosts, is_our_dns
 
 
 def set_hosts(domain: str, hosts: list[dict[str, str]]) -> None:
@@ -166,7 +192,42 @@ def main() -> None:
         sys.exit("Faltan vars: NAMECHEAP_API_USER, NAMECHEAP_API_KEY, NAMECHEAP_IP")
 
     print(f"🔍 GET hosts de {args.domain}…")
-    current = get_hosts(args.domain)
+    try:
+        current, is_our_dns = get_hosts(args.domain)
+    except NamecheapDNSNotOurs as e:
+        print()
+        print("⚠️  ESTE DOMINIO USA NAMESERVERS CUSTOM (no Namecheap).")
+        print(f"   {e}")
+        print()
+        print("   No podemos editar DNS vía API hasta que migres a Namecheap DNS.")
+        print()
+        print("Pasos para migrar:")
+        print(f"  1. Namecheap Dashboard → Domain List → {args.domain} → Manage")
+        print("  2. Nameservers → 'Namecheap BasicDNS' → Save")
+        print("  3. Espera 5-30 min a que propague")
+        print("  4. Vuelve a correr este script")
+        print()
+        print("Alternativa: crea los records manualmente en tu proveedor DNS")
+        print("apuntando a 38.242.194.196:")
+        for name, type_, addr in DESIRED_RECORDS:
+            print(f"  {name:<30} {type_:<5} {addr}")
+        sys.exit(0)
+    if not is_our_dns:
+        print()
+        print("⚠️  ESTE DOMINIO USA NAMESERVERS CUSTOM (no Namecheap).")
+        print("    No podemos editar DNS hasta que migres a Namecheap DNS.")
+        print()
+        print("Pasos para migrar:")
+        print(f"  1. Namecheap Dashboard → Domain List → {args.domain} → Manage")
+        print("  2. Nameservers → 'Namecheap BasicDNS' → Save")
+        print("  3. Espera 5-30 min a que propague")
+        print("  4. Vuelve a correr este script")
+        print()
+        print("Alternativa: crea los records manualmente en tu proveedor DNS")
+        print("apuntando a 38.242.194.196:")
+        for name, type_, addr in DESIRED_RECORDS:
+            print(f"  {name:<30} {type_:<5} {addr}")
+        sys.exit(0)
     print(f"   {len(current)} records actuales")
     for h in current[:5]:
         print(f"     - {h['name'] or '@':<30} {h['type']:<5} {h['address']}")

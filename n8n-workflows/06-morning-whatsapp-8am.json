@@ -5,7 +5,7 @@
       "parameters": {
         "rule": {"interval": [{"cronExpression": "0 8 * * *"}]}
       },
-      "name": "Cron 8am",
+      "name": "Cron 8am daily",
       "type": "n8n-nodes-base.scheduleTrigger",
       "position": [240, 300]
     },
@@ -13,7 +13,13 @@
       "parameters": {
         "method": "POST",
         "url": "http://host.docker.internal:8040/api/reports/morning",
-        "options": {}
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {"name": "Authorization", "value": "Bearer {{$env.BRAIN_API_TOKEN}}"}
+          ]
+        },
+        "options": {"timeout": 60000}
       },
       "name": "POST /api/reports/morning",
       "type": "n8n-nodes-base.httpRequest",
@@ -28,40 +34,62 @@
               "leftValue": "={{$json.ok}}",
               "rightValue": true,
               "operator": {"type": "boolean", "operation": "true"}
+            },
+            {
+              "leftValue": "={{$json.whatsapp_sent}}",
+              "rightValue": 0,
+              "operator": {"type": "number", "operation": "gt"}
             }
-          ]
+          ],
+          "combinator": "and"
         }
       },
-      "name": "If ok",
+      "name": "If sent > 0",
       "type": "n8n-nodes-base.if",
-      "position": [700, 300]
+      "position": [720, 300]
     },
     {
       "parameters": {
         "channel": "#ops-brain",
-        "text": "={{'📊 Reporte 8am enviado. ' + $json.actions_sent + ' acciones enviadas.'}}",
+        "text": "={{'📊 Reporte 8am: ' + $json.actions_queued + ' acciones, ' + $json.whatsapp_sent + ' WhatsApp enviados, ' + $json.tenants_processed + ' tenants.'}}",
         "otherOptions": {}
       },
-      "name": "Slack ok",
+      "name": "Slack success",
       "type": "n8n-nodes-base.slack",
       "position": [920, 200]
     },
     {
       "parameters": {
         "channel": "#ops-brain",
-        "text": "={{'🚨 Reporte 8am FALLÓ: ' + $json.error}}",
+        "text": "={{'🚨 Reporte 8am: ' + $json.actions_queued + ' acciones queued pero ' + $json.whatsapp_sent + ' WhatsApp enviados. Errores: ' + JSON.stringify($json.whatsapp_errors)}}",
+        "otherOptions": {}
+      },
+      "name": "Slack partial fail",
+      "type": "n8n-nodes-base.slack",
+      "position": [920, 400]
+    },
+    {
+      "parameters": {
+        "channel": "#ops-brain",
+        "text": "={{'🔥 Reporte 8am FALLÓ: ' + JSON.stringify($json)}}",
         "otherOptions": {}
       },
       "name": "Slack fail",
       "type": "n8n-nodes-base.slack",
-      "position": [920, 400]
+      "position": [920, 600]
     }
   ],
   "connections": {
-    "Cron 8am": {"main": [[{"node": "POST /api/reports/morning", "type": "main", "index": 0}]]},
-    "POST /api/reports/morning": {"main": [[{"node": "If ok", "type": "main", "index": 0}]]},
-    "If ok": {
-      "main": [[{"node": "Slack ok", "type": "main", "index": 0}], [{"node": "Slack fail", "type": "main", "index": 0}]]
+    "Cron 8am daily": {"main": [[{"node": "POST /api/reports/morning", "type": "main", "index": 0}]]},
+    "POST /api/reports/morning": {"main": [[{"node": "If sent > 0", "type": "main", "index": 0}]]},
+    "If sent > 0": {
+      "main": [
+        [{"node": "Slack success", "type": "main", "index": 0}],
+        [{"node": "Slack partial fail", "type": "main", "index": 0}]
+      ]
     }
+  },
+  "settings": {
+    "errorWorkflow": "06-morning-whatsapp-8am-error"
   }
 }

@@ -1,0 +1,103 @@
+{
+  "name": "07-evolution-webhook-bridge",
+  "nodes": [
+    {
+      "parameters": {
+        "httpMethod": "POST",
+        "path": "evolution",
+        "responseMode": "onReceived",
+        "responseData": "allEntries",
+        "options": {"rawBody": true}
+      },
+      "name": "Evolution Webhook (POST)",
+      "type": "n8n-nodes-base.webhook",
+      "position": [240, 300]
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": {"caseSensitive": true, "leftValue": "", "typeValidation": "strict"},
+          "conditions": [
+            {"leftValue": "={{$json.body.event}}", "rightValue": "messages.upsert", "operator": {"type": "string", "operation": "equals"}}
+          ]
+        }
+      },
+      "name": "If messages.upsert",
+      "type": "n8n-nodes-base.if",
+      "position": [480, 300]
+    },
+    {
+      "parameters": {
+        "functionCode": "// Extraer texto del mensaje\nconst body = $json.body || {};\nconst data = body.data || {};\nconst msg = data.message || {};\nconst text = (msg.conversation || msg.extendedTextMessage?.text || '').trim().toUpperCase();\nconst phone = (data.key?.remoteJid || '').replace('@s.whatsapp.net', '');\nconst fromMe = data.key?.fromMe ?? false;\n\nif (fromMe || !text) {\n  return [{json: {ignored: 'self_or_empty', text, phone}}];\n}\nif (!['SI','NO','S','N','SÍ'].includes(text)) {\n  return [{json: {ignored: 'not_si_no', text, phone}}];\n}\nreturn [{json: {phone, text, approved: text === 'SI' || text === 'S' || text === 'SÍ', original: body}}];"
+      },
+      "name": "Parse SI/NO",
+      "type": "n8n-nodes-base.function",
+      "position": [700, 200]
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": {"caseSensitive": true, "leftValue": "", "typeValidation": "strict"},
+          "conditions": [
+            {"leftValue": "={{$json.approved}}", "rightValue": true, "operator": {"type": "boolean", "operation": "true"}}
+          ]
+        }
+      },
+      "name": "Is SI?",
+      "type": "n8n-nodes-base.if",
+      "position": [920, 200]
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "http://host.docker.internal:8040/api/internal/confirm-latest",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {"name": "Authorization", "value": "Bearer {{$env.env.BRAIN_API_TOKEN}}"}
+          ]
+        },
+        "sendBody": true,
+        "bodyParameters": {
+          "parameters": [
+            {"name": "phone", "value": "={{$json.phone}}"},
+            {"name": "approved", "value": "true"}
+          ]
+        },
+        "options": {"timeout": 30000}
+      },
+      "name": "Confirm approve",
+      "type": "n8n-nodes-base.httpRequest",
+      "position": [1180, 100]
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "http://host.docker.internal:8040/api/internal/confirm-latest",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {"name": "Authorization", "value": "Bearer {{$env.env.BRAIN_API_TOKEN}}"}
+          ]
+        },
+        "sendBody": true,
+        "bodyParameters": {
+          "parameters": [
+            {"name": "phone", "value": "={{$json.phone}}"},
+            {"name": "approved", "value": "false"}
+          ]
+        },
+        "options": {"timeout": 30000}
+      },
+      "name": "Confirm reject",
+      "type": "n8n-nodes-base.httpRequest",
+      "position": [1180, 300]
+    }
+  ],
+  "connections": {
+    "Evolution Webhook (POST)": {"main": [[{"node": "If messages.upsert", "type": "main", "index": 0}]]},
+    "If messages.upsert": {"main": [[{"node": "Parse SI/NO", "type": "main", "index": 0}], []]},
+    "Parse SI/NO": {"main": [[{"node": "Is SI?", "type": "main", "index": 0}], []]},
+    "Is SI?": {"main": [[{"node": "Confirm approve", "type": "main", "index": 0}], [{"node": "Confirm reject", "type": "main", "index": 0}]]}
+  }
+}

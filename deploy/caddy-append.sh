@@ -30,6 +30,12 @@ if [[ ! -f $SNIPPET_FILE ]]; then
   exit 1
 fi
 
+# Dry-run
+DRY_RUN=false
+for arg in "$@"; do
+  case "$arg" in --dry-run) DRY_RUN=true ;; esac
+done
+
 echo -e "${YELLOW}🔍 Verificando subdominios no duplicados…${NC}"
 
 DUPLICATES=0
@@ -48,6 +54,18 @@ if [[ $DUPLICATES -gt 0 ]]; then
 fi
 
 BACKUP="${CADDY_FILE}.bak.pre-ecommerce-brain.$(date +%s)"
+if $DRY_RUN; then
+  echo ""
+  echo -e "${YELLOW}🔎 DRY-RUN — no se harán cambios${NC}"
+  echo "Backup sería: $BACKUP"
+  echo "Bloque a añadir:"
+  echo "─────────────────────────────────────"
+  cat "$SNIPPET_FILE" | sed 's/^/  /'
+  echo "─────────────────────────────────────"
+  echo "Para aplicar: sudo bash $0"
+  exit 0
+fi
+
 cp "$CADDY_FILE" "$BACKUP"
 echo -e "${GREEN}💾 Backup: $BACKUP${NC}"
 
