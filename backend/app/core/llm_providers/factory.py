@@ -9,6 +9,9 @@ from app.core.llm_providers.base import LLMClient, LLMError
 def get_llm_client() -> LLMClient:
     """Returns the configured LLM client (cached singleton)."""
     provider = settings.llm_provider
+    if provider == "mock":
+        from app.core.llm_providers.mock import MockLLM
+        return MockLLM()
     if provider == "minimax":
         from app.core.llm_providers.minimax import MiniMaxClient
         return MiniMaxClient()

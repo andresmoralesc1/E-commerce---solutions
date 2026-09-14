@@ -8,7 +8,10 @@ from app.core.config import settings
 from app.core.db import close_db, init_db
 from app.core.logging import log, setup_logging
 from app.core.llm_providers import get_llm_client
-from app.routers import agent, auth, dashboard, tenants, sync, webhooks, ads, products, reports
+from app.routers import (
+    ads, agent, audit, auth, dashboard, oauth, products, reports,
+    sync, tenants, webhooks,
+)
 
 setup_logging("DEBUG" if settings.debug else "INFO")
 
@@ -47,6 +50,8 @@ app.include_router(webhooks.router)
 app.include_router(ads.router)
 app.include_router(products.router)
 app.include_router(reports.router)
+app.include_router(oauth.router)
+app.include_router(audit.router)
 
 
 @app.get("/health")

@@ -120,5 +120,5 @@ async def evolution_webhook(
         return {"ok": True, "msg": "no_pending_actions"}
 
     # TODO Fase 3: validar que el phone pertenece al manager del tenant
-    result = await confirm_and_execute(str(row["id"]), approved)
+    result = await confirm_and_execute(str(row["id"]), approved, actor=f"whatsapp:{phone}")
     return {"ok": True, "action_id": str(row["id"]), "result": result}

@@ -13,6 +13,76 @@ from app.core.logging import log
 
 SHOPIFY_API_VERSION = "2024-10"
 
+# Variants
+VARIANT_QUERY = """
+  query($id: ID!) {
+    productVariant(id: $id) {
+      id title price sku
+    }
+  }
+"""
+
+VARIANT_UPDATE = """
+  mutation updateVariantPrice($input: ProductVariantInput!) {
+    productVariantUpdate(input: $input) {
+      productVariant { id price }
+      userErrors { field message }
+    }
+  }
+"""
+
+
+async def get_variant(variant_id: str, access_token: str, shop_domain: str) -> dict:
+    """Lee un variant por ID GraphQL."""
+    async with await _shopify_client(shop_domain, access_token) as client:
+        gid = (
+            f"gid://shopify/ProductVariant/{variant_id}"
+            if not variant_id.startswith("gid://")
+            else variant_id
+        )
+        r = await client.post(
+            "/graphql.json",
+            json={"query": VARIANT_QUERY, "variables": {"id": gid}},
+        )
+        if r.status_code != 200:
+            return {}
+        return r.json().get("data", {}).get("productVariant", {}) or {}
+
+
+async def update_variant_price(
+    variant_id: str,
+    new_price: float,
+    access_token: str,
+    shop_domain: str,
+) -> dict:
+    """Actualiza el precio de un variant vía GraphQL."""
+    async with await _shopify_client(shop_domain, access_token) as client:
+        gid = (
+            f"gid://shopify/ProductVariant/{variant_id}"
+            if not variant_id.startswith("gid://")
+            else variant_id
+        )
+        r = await client.post(
+            "/graphql.json",
+            json={
+                "query": VARIANT_UPDATE,
+                "variables": {
+                    "input": {"id": gid, "price": new_price},
+                },
+            },
+        )
+        if r.status_code != 200:
+            return {"error": r.text[:300]}
+        data = r.json()
+        errors = (
+            data.get("data", {})
+            .get("productVariantUpdate", {})
+            .get("userErrors", [])
+        )
+        if errors:
+            return {"errors": errors}
+        return data.get("data", {}).get("productVariantUpdate", {})
+
 
 async def _shopify_client(shop_domain: str, access_token: str) -> httpx.AsyncClient:
     return httpx.AsyncClient(

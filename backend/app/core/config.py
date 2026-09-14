@@ -31,7 +31,7 @@ class Settings(BaseSettings):
     jwt_expire_minutes: int = 1440
 
     # LLM
-    llm_provider: Literal["minimax", "anthropic", "openai"] = "minimax"
+    llm_provider: Literal["mock", "minimax", "anthropic", "openai"] = "mock"
     minimax_api_key: str = ""
     minimax_base_url: str = "https://api.minimax.io/v1"
     minimax_model: str = "MiniMax-M3"

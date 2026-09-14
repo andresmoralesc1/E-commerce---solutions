@@ -190,7 +190,9 @@ async def queue_action(
     return dict(row)
 
 
-async def confirm_and_execute(action_id: str, approved: bool) -> dict:
+async def confirm_and_execute(
+    action_id: str, approved: bool, actor: str = "user"
+) -> dict:
     """Confirma (o rechaza) y, si aprobada, ejecuta."""
     from app.core import db
 
@@ -223,6 +225,12 @@ async def confirm_and_execute(action_id: str, approved: bool) -> dict:
             "rejected_by_user",
             action_id,
         )
+        await _record_audit(
+            tenant_id=pa["tenant_id"],
+            actor=actor,
+            action=f"action.rejected.{pa['action_type']}",
+            payload={"action_id": str(action_id), "sku": pa["sku"]},
+        )
         return {"ok": True, "status": "rejected"}
 
     await db.execute(
@@ -234,7 +242,14 @@ async def confirm_and_execute(action_id: str, approved: bool) -> dict:
         action_id,
     )
 
-    # Ejecutar (Fase 3+ — placeholder fase 1)
+    await _record_audit(
+        tenant_id=pa["tenant_id"],
+        actor=actor,
+        action=f"action.approved.{pa['action_type']}",
+        payload={"action_id": str(action_id), "sku": pa["sku"]},
+    )
+
+    # Ejecutar (Fase 3 — Meta/Google SDK real)
     try:
         from app.services.ads_executor import execute_action
 
@@ -249,6 +264,13 @@ async def confirm_and_execute(action_id: str, approved: bool) -> dict:
             json.dumps(result),
             action_id,
         )
+        await _record_audit(
+            tenant_id=pa["tenant_id"],
+            actor=actor,
+            action=f"action.executed.{pa['action_type']}",
+            payload={"action_id": str(action_id), "sku": pa["sku"]},
+            result=result,
+        )
         return {"ok": True, "status": "executed", "result": result}
     except Exception as e:
         log.error("agent.execute_failed", action_id=action_id, error=str(e))
@@ -262,4 +284,28 @@ async def confirm_and_execute(action_id: str, approved: bool) -> dict:
             json.dumps({"error": str(e)}),
             action_id,
         )
+        await _record_audit(
+            tenant_id=pa["tenant_id"],
+            actor=actor,
+            action=f"action.failed.{pa['action_type']}",
+            payload={"action_id": str(action_id), "sku": pa["sku"]},
+            result={"error": str(e)},
+        )
         return {"ok": False, "status": "failed", "error": str(e)}
+
+
+async def _record_audit(
+    tenant_id, actor: str, action: str,
+    payload: dict, result: dict | None = None,
+) -> None:
+    from app.core import db
+    import json as _json
+    await db.execute(
+        """
+        INSERT INTO audit_log (tenant_id, actor, action, payload, result)
+        VALUES ($1::uuid, $2, $3, $4::jsonb, $5::jsonb)
+        """,
+        tenant_id, actor, action,
+        _json.dumps(payload),
+        _json.dumps(result) if result else None,
+    )
