@@ -79,6 +79,7 @@ async def list_pending(
     tenant_id: UUID | None = Query(None),
     status_filter: str = Query("pending"),
     limit: int = Query(50, ge=1, le=200),
+    offset: int = Query(0, ge=0),
     user: TokenData = Depends(get_current_user),
 ) -> list[PendingActionOut]:
     allowed = await get_tenant_ids(user)
@@ -88,18 +89,18 @@ async def list_pending(
                 """
                 SELECT * FROM pending_actions
                 WHERE tenant_id = $1 AND status = $2
-                ORDER BY created_at DESC LIMIT $3
+                ORDER BY created_at DESC LIMIT $3 OFFSET $4
                 """,
-                tenant_id, status_filter, limit,
+                tenant_id, status_filter, limit, offset,
             )
         else:
             rows = await db.fetch(
                 """
                 SELECT * FROM pending_actions
                 WHERE status = $1
-                ORDER BY created_at DESC LIMIT $2
+                ORDER BY created_at DESC LIMIT $2 OFFSET $3
                 """,
-                status_filter, limit,
+                status_filter, limit, offset,
             )
     else:
         if not allowed:
@@ -108,8 +109,42 @@ async def list_pending(
             """
             SELECT * FROM pending_actions
             WHERE tenant_id = ANY($1::uuid[]) AND status = $2
-            ORDER BY created_at DESC LIMIT $3
+            ORDER BY created_at DESC LIMIT $3 OFFSET $4
             """,
-            allowed, status_filter, limit,
+            allowed, status_filter, limit, offset,
         )
     return [PendingActionOut(**_parse_pending(dict(r))) for r in rows]
+
+
+@router.post("/bulk-confirm")
+async def bulk_confirm(
+    body: dict,
+    user: TokenData = Depends(get_current_user),
+) -> dict:
+    """Bulk approve/reject de múltiples pending_actions."""
+    action_ids = body.get("action_ids", [])
+    approved = bool(body.get("approved", True))
+    if not action_ids or not isinstance(action_ids, list):
+        raise HTTPException(status_code=400, detail="action_ids required")
+
+    if not user.superuser:
+        allowed = await get_tenant_ids(user)
+        if not allowed:
+            raise HTTPException(status_code=403, detail="Sin acceso")
+
+    results = []
+    for action_id in action_ids:
+        try:
+            r = await confirm_and_execute(str(action_id), approved, actor=f"user:{user.user_id}")
+            results.append({"action_id": str(action_id), "ok": r.get("ok"), "status": r.get("status")})
+        except Exception as e:
+            results.append({"action_id": str(action_id), "ok": False, "error": str(e)})
+
+    succeeded = sum(1 for r in results if r.get("ok"))
+    return {
+        "ok": True,
+        "total": len(action_ids),
+        "succeeded": succeeded,
+        "failed": len(action_ids) - succeeded,
+        "results": results,
+    }

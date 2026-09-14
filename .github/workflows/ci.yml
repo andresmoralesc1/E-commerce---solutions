@@ -1,0 +1,145 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+
+jobs:
+  backend-tests:
+    runs-on: ubuntu-latest
+    services:
+      postgres:
+        image: postgres:16-alpine
+        env:
+          POSTGRES_USER: brain
+          POSTGRES_PASSWORD: brain
+          POSTGRES_DB: brain
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U brain"
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 5
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Install dependencies
+        run: |
+          cd backend
+          pip install -e ".[dev]"
+
+      - name: Apply schema
+        env:
+          DATABASE_URL: postgresql://brain:brain@localhost:5432/brain
+        run: |
+          PGPASSWORD=brain psql -h localhost -U brain -d brain -f db/init.sql
+
+      - name: Run tests
+        env:
+          DATABASE_URL: postgresql://brain:brain@localhost:5432/brain
+          TEST_DATABASE_URL: postgresql://brain:brain@localhost:5432/brain
+          JWT_SECRET: test-secret-do-not-use-in-prod-32chars
+          LLM_PROVIDER: mock
+        run: |
+          cd backend
+          pytest tests/ -v --tb=short --cov=app --cov-report=xml --cov-report=term
+
+      - name: Upload coverage
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: coverage-backend
+          path: backend/coverage.xml
+
+  frontend-build:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+
+      - name: Install + build
+        run: |
+          cd frontend
+          npm ci --legacy-peer-deps
+          npm run build
+
+      - name: Type check
+        run: |
+          cd frontend
+          npx tsc --noEmit
+
+  frontend-e2e:
+    runs-on: ubuntu-latest
+    needs: frontend-build
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+
+      - name: Install Playwright
+        run: |
+          cd frontend
+          npm install --no-save @playwright/test
+          npx playwright install --with-deps chromium
+
+      - name: Run smoke tests
+        env:
+          BASE_URL: http://localhost:3040
+        run: |
+          cd frontend
+          # Nota: los e2e reales requieren docker compose up. Aquí solo
+          # validamos que el config y tests carguen sin errores.
+          npx playwright test --list
+
+  docker-compose-validate:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Validate compose
+        run: |
+          python3 -c "
+          import yaml
+          with open('docker-compose.yml') as f:
+            d = yaml.safe_load(f)
+          assert 'services' in d
+          assert len(d['services']) >= 4
+          for name in ['postgres', 'backend', 'frontend']:
+            assert name in d['services'], f'missing {name}'
+          print(f'OK: {len(d[\"services\"])} services')
+          "
+
+      - name: Validate backend Python
+        run: |
+          cd backend
+          python3 -m py_compile app/main.py
+          find app -name "*.py" | xargs python3 -m py_compile
+
+      - name: Validate shell scripts
+        run: |
+          for f in deploy/*.sh; do
+            bash -n "$f" && echo "OK $f"
+          done
+
+      - name: Validate Python DSL scripts
+        run: |
+          python3 -m py_compile deploy/namecheap-dns-sync.py && echo "OK dns-sync"
+
+      - name: JSON validation
+        run: |
+          for f in n8n-workflows/*.json frontend/messages/*.json; do
+            python3 -c "import json; json.load(open('$f'))" && echo "OK $f"
+          done

@@ -47,6 +47,8 @@ services:
       - ./backend/app:/app/app
       - ./backend/scripts:/app/scripts
       - ./backend/migrations:/app/migrations
+      - ./backend/tests:/app/tests
+      - ./backend/pyproject.toml:/app/pyproject.toml
     ports:
       - "127.0.0.1:8040:8000"
     healthcheck:

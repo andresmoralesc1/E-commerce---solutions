@@ -8,6 +8,11 @@ import {useAuth} from "@/lib/auth";
 import {useTenant} from "@/lib/tenant";
 import {KPICards} from "@/components/KPICards";
 import {ProfitabilityTable} from "@/components/ProfitabilityTable";
+import {
+  StateDistributionChart,
+  AdSpendVsRevenueChart,
+  MarginPctChart,
+} from "@/components/Charts";
 import type {KPIs, ProfitabilityRow} from "@/lib/types";
 
 export function DashboardClient() {
@@ -29,7 +34,7 @@ export function DashboardClient() {
     {refreshInterval: 30000},
   );
   const prof = useSWR<ProfitabilityRow[]>(
-    token ? ["/api/dashboard/profitability?limit=10", token, activeTenantId] : null,
+    token ? ["/api/dashboard/profitability?limit=200", token, activeTenantId] : null,
     ([url, t]) => {
       const sep = url.includes("?") ? "&" : "?";
       const q = activeTenantId ? `${url}${sep}tenant_id=${activeTenantId}` : url;
@@ -48,14 +53,23 @@ export function DashboardClient() {
       </p>
     );
 
+  const rows = prof.data ?? [];
+
   return (
     <>
       <KPICards data={kpis.data ?? emptyKPIs()} />
-      <section>
+      <div className="grid grid-cols-1 lg:grid-cols-2 gap-4 mt-6">
+        <StateDistributionChart rows={rows} />
+        <AdSpendVsRevenueChart rows={rows} />
+      </div>
+      <div className="mt-6">
+        <MarginPctChart rows={rows} />
+      </div>
+      <section className="mt-6">
         <h2 className="text-lg font-semibold mb-3">
           🔥 Top 10 SKUs a pérdida / optimización
         </h2>
-        <ProfitabilityTable rows={prof.data ?? []} />
+        <ProfitabilityTable rows={rows.slice(0, 10)} />
       </section>
     </>
   );

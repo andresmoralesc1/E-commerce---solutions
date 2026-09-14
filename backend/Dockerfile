@@ -23,7 +23,8 @@ RUN pip install --no-cache-dir --upgrade pip \
     httpx>=0.27.2 \
     structlog>=24.4.0 \
     python-dotenv>=1.0.1 \
-    email-validator>=2.2.0
+    email-validator>=2.2.0 \
+    prometheus-client>=0.21.1
 
 COPY app ./app
 
